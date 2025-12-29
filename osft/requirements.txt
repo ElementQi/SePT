@@ -5,7 +5,7 @@ datasets
 dill
 hydra-core
 numpy
-pandas
+pandas==2.3.0
 peft
 pyarrow==20.0.0
 pybind11
