@@ -40,7 +40,7 @@ def default_compute_score(data_source, solution_str, ground_truth, extra_info=No
             "lighteval/MATH",
             "DigitalLearningGmbH/MATH-lighteval",
             "math500", "amc", "aime", "aime25", "olympiadbench", "minerva", "amc23",
-            "deepscaler", "math_dapo", "math_12k"
+            "deepscaler", "math_dapo", "math_12k",
             "open-thoughts/OpenThoughts3-1.2M",
         ]:
         # from . import math
