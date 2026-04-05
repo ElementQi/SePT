@@ -679,7 +679,11 @@ class ActorRolloutRefWorker(Worker):
         data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
         data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
-        data.meta_info["temperature"] = self.config.rollout.temperature
+        # Prefer caller-provided temperature (e.g., OSFT tau_t) for log-prob recomputation.
+        # This preserves default GRPO behavior because callers that do not provide
+        # `meta_info["temperature"]` still fall back to rollout.temperature.
+        temperature = data.meta_info.get("temperature", self.config.rollout.temperature)
+        data.meta_info["temperature"] = temperature
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data)
@@ -687,7 +691,7 @@ class ActorRolloutRefWorker(Worker):
                 output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
             output = DataProto.from_dict(
                 tensors={"old_log_probs": output, "entropys": entropys},
-                meta_info={"temperature": self.config.rollout.temperature},
+                meta_info={"temperature": temperature},
             )
             output = self.ulysses_sharding_manager.postprocess_data(output)
 
@@ -722,6 +726,46 @@ class ActorRolloutRefWorker(Worker):
         micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
         data.meta_info["temperature"] = self.config.rollout.temperature
+        data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
+        with self.ulysses_sharding_manager:
+            data = self.ulysses_sharding_manager.preprocess_data(data)
+            output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
+            output = DataProto.from_dict(tensors={"ref_log_prob": output})
+            output = self.ulysses_sharding_manager.postprocess_data(output)
+
+        output = output.to("cpu")
+
+        # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+        # unshard the root FSDP module
+        if self.world_size > 1 and fsdp_version(self.ref_policy.actor_module) == 1:
+            self.ref_policy.actor_module._handle.reshard(True)
+
+        return output
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+    def compute_ref_log_prob_tau_t(self, data: DataProto):
+        # Keep tau_t aligned with the caller-provided training temperature when available.
+        # This is required for KL training with train-temperature enabled, where the actor
+        # log-probs are computed at the same temperature.
+        temperature = data.meta_info.get("temperature", 1.0)
+        if self._is_lora:
+            # if _is_lora, actor without lora applied is the ref
+            data.meta_info["is_lora"] = True
+            data.meta_info["temperature"] = temperature
+            data = self.compute_log_prob(data)
+            # this old_log_probs is in fact ref_log_prob
+            data = DataProto.from_dict(tensors={"ref_log_prob": data.batch["old_log_probs"]})
+            return data
+        assert self._is_ref
+        # else:
+        # otherwise, the class have a standalone ref model
+        # Support all hardwares
+        data = data.to(get_device_id())
+
+        micro_batch_size = self.config.ref.log_prob_micro_batch_size_per_gpu
+        data.meta_info["micro_batch_size"] = micro_batch_size
+        data.meta_info["temperature"] = temperature
         data.meta_info["max_token_len"] = self.config.ref.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = self.config.ref.log_prob_use_dynamic_bsz
         with self.ulysses_sharding_manager:

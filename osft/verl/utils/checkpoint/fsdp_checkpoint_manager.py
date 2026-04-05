@@ -12,22 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 import os
 import warnings
+from pathlib import Path
 from typing import Optional, Union
 
 import torch
 import torch.distributed
 from accelerate import init_empty_weights
 from omegaconf import DictConfig
+from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
 from torch.distributed.fsdp import FullStateDictConfig, ShardedOptimStateDictConfig, ShardedStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from transformers import GenerationConfig, PreTrainedTokenizer, ProcessorMixin
 
 from verl.utils.device import is_cuda_available
 from verl.utils.fs import copy_to_local, is_non_local
-from verl.utils.fsdp_utils import fsdp_version, get_fsdp_state_ctx
+from verl.utils.fsdp_utils import fsdp2_load_full_state_dict, fsdp_version, get_fsdp_state_ctx
 from verl.utils.logger import log_with_rank
 
 from .checkpoint_manager import BaseCheckpointManager
@@ -83,11 +86,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         Load an FSDP checkpoint for this rank.
 
         Downloads and loads:
-          - model and optimizer shards
+          - model and optimizer shards (FSDP sharded format), or
+          - a HuggingFace safetensors checkpoint (full model weights)
           - extra state dict (scheduler + RNG)
 
         Args:
-            local_path: Directory with per-rank checkpoint files.
+            local_path: Directory with per-rank checkpoint files, or a HuggingFace
+                checkpoint directory containing ``model.safetensors`` or
+                ``model.safetensors.index.json``.
             hdfs_path: Unused (for API compatibility).
             del_local_after_load: Remove local files after loading.
         """
@@ -99,6 +105,13 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             assert self.model is not None, "model must be provided when checkpoint_contents.load includes ['model']"
         if self.should_load_optimizer:
             assert self.optimizer is not None, "optimizer must be provided when checkpoint_contents.load includes ['optimizer']"
+
+        # Detect HuggingFace safetensors format and use a different loading path.
+        if self.should_load_model and _is_hf_safetensors_checkpoint(local_path):
+            self._load_hf_safetensors_checkpoint(local_path)
+            log_with_rank(f"Loaded HF safetensors model from {local_path}", rank=self.rank, logger=logger)
+            torch.distributed.barrier()
+            return
 
         # every rank download its own checkpoint
         state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True if is_cuda_available else False) if self.should_load_model else None
@@ -143,6 +156,34 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
         # wait for everyone to load checkpoints
         torch.distributed.barrier()
+
+    def _load_hf_safetensors_checkpoint(self, local_path: str) -> None:
+        """Load a HuggingFace safetensors checkpoint into the FSDP model.
+
+        Only model weights are restored; optimizer and scheduler states are not
+        present in HuggingFace checkpoints and are left unchanged.
+        """
+        # Rank 0 loads the full state dict; other ranks pass an empty dict.
+        # set_model_state_dict with broadcast_from_rank0=True handles the
+        # distribution of parameters to all ranks for both FSDP1 and FSDP2.
+        if self.rank == 0:
+            state_dict = _load_safetensors_state_dict(local_path)
+        else:
+            state_dict = {}
+
+        if fsdp_version(self.model) == 2:
+            fsdp2_load_full_state_dict(self.model, state_dict)
+        else:
+            # FSDP1: use set_model_state_dict with broadcast_from_rank0=True so
+            # that the full state dict is scattered from rank 0 to all ranks.
+            # Using FSDP.state_dict_type + load_state_dict with an empty dict on
+            # non-rank-0 workers fails because load_state_dict checks for missing
+            # keys before FSDP can broadcast.
+            options = StateDictOptions(full_state_dict=True, cpu_offload=True, broadcast_from_rank0=True)
+            set_model_state_dict(self.model, state_dict, options=options)
+            # Broadcast buffers (e.g. rotary_emb) that are not in the state dict.
+            for _, buf in self.model.named_buffers():
+                torch.distributed.broadcast(buf, src=0)
 
     def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
         """
@@ -280,3 +321,40 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
         self.previous_saved_paths.append(local_path)
+
+
+def _is_hf_safetensors_checkpoint(path: str) -> bool:
+    """Return True if *path* is a HuggingFace checkpoint saved as safetensors.
+
+    A directory is considered an HF safetensors checkpoint when it contains
+    either ``model.safetensors`` (single-shard) or
+    ``model.safetensors.index.json`` (multi-shard).
+    """
+    p = Path(path)
+    return (p / "model.safetensors.index.json").exists() or (p / "model.safetensors").exists()
+
+
+def _load_safetensors_state_dict(path: str) -> dict:
+    """Load all model weights from a HuggingFace safetensors checkpoint.
+
+    Handles both single-file (``model.safetensors``) and multi-shard
+    (``model-XXXXX-of-YYYYY.safetensors`` + index) formats.
+    """
+    from safetensors.torch import load_file
+
+    index_file = os.path.join(path, "model.safetensors.index.json")
+    if os.path.exists(index_file):
+        with open(index_file, "r", encoding="utf-8") as f:
+            index = json.load(f)
+        state_dict = {}
+        loaded_files = set()
+        for filename in index["weight_map"].values():
+            if filename in loaded_files:
+                continue
+            shard = load_file(os.path.join(path, filename))
+            state_dict.update(shard)
+            loaded_files.add(filename)
+    else:
+        state_dict = load_file(os.path.join(path, "model.safetensors"))
+
+    return state_dict

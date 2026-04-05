@@ -210,5 +210,6 @@ outputs
 logs
 *.out
 *.sh
+!osft/examples/*.sh
 .vscode
 saves

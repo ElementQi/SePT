@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import uuid
+import math
 from pprint import pprint
 from typing import Optional, Type
 
@@ -79,7 +80,9 @@ class RayOSFTTrainer(RayPPOTrainer):
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = False
+        self.use_reference_policy = Role.RefPolicy in role_worker_mapping
+        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+
         self.use_rm = False
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name
@@ -146,6 +149,41 @@ class RayOSFTTrainer(RayPPOTrainer):
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
 
+                # anneal tau_s if needed
+                current_tau_s = self.config.actor_rollout_ref.rollout.temperature
+                anneal_config = self.config.actor_rollout_ref.rollout.get("tau_s_annealing", {})
+
+                if anneal_config.get("enable", False):
+                    start_tau = float(anneal_config.get("start_tau", 0.3))
+                    end_tau = float(anneal_config.get("end_tau", 0.6))
+                    anneal_epochs = int(anneal_config.get("epochs", 2))
+                    anneal_mode = str(anneal_config.get("mode", "linear")).lower()
+
+                    # Optional: allow overriding the number of steps directly
+                    total_anneal_steps = anneal_config.get("steps")
+                    if total_anneal_steps is None:
+                        steps_per_epoch = max(1, self.total_training_steps // max(1, self.config.trainer.total_epochs))
+                        total_anneal_steps = max(1, anneal_epochs * steps_per_epoch)
+
+                    current_step = max(0, self.global_steps - 1)  # zero-based
+                    if current_step < total_anneal_steps:
+                        progress = current_step / total_anneal_steps  # in [0, 1)
+                        if anneal_mode == "linear":
+                            # Linear: start -> end at a constant rate
+                            current_tau_s = start_tau + (end_tau - start_tau) * progress
+                        else:
+                            # Cosine: smooth start -> end
+                            cosine_value = 0.5 * (1 + math.cos(math.pi * progress))
+                            current_tau_s = end_tau - (end_tau - start_tau) * cosine_value
+                    else:
+                        current_tau_s = end_tau
+
+                    # Update the temperature for the rollout
+                    gen_batch.meta_info["temperature"] = current_tau_s
+                    gen_batch.meta_info["taus_anneal"] = True
+                    metrics["train/current_tau_s"] = float(current_tau_s)
+                    metrics["train/taus_anneal_progress"] = min(1.0, current_step / total_anneal_steps)
+
                 is_last_step = self.global_steps >= self.total_training_steps
 
                 with _timer("step", timing_raw):
@@ -186,11 +224,23 @@ class RayOSFTTrainer(RayPPOTrainer):
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
 
-                    # make tau_t = tau_s
-                    if self.config.trainer.enable_train_temperature:
-                        batch.meta_info["temperature"] = self.config.actor_rollout_ref.rollout.temperature
-                    else:
-                        batch.meta_info["temperature"] = 1.0 # tau_t = 1
+                    # Use a single tau_t source for both ref-logprob and actor loss.
+                    # This keeps KL temperature-consistent when train temperature is enabled,
+                    # while preserving vanilla behavior (tau_t = 1.0) otherwise.
+                    train_temperature = current_tau_s if self.config.trainer.enable_train_temperature else 1.0
+                    batch.meta_info["temperature"] = train_temperature
+
+                    if self.use_reference_policy:
+                        # compute reference log_prob
+                        with _timer("ref", timing_raw):
+                            if not self.ref_in_actor:
+                                ref_log_prob = self.ref_policy_wg.compute_ref_log_prob_tau_t(batch)
+                            else:
+                                ref_log_prob = self.actor_rollout_wg.compute_ref_log_prob_tau_t(batch)
+                            batch = batch.union(ref_log_prob)
+
+                    # this is used to indicate the temperature for loss calculation.
+                    batch.meta_info["temperature"] = train_temperature
 
                     # update actor (core part)
                     with _timer("update_actor", timing_raw):

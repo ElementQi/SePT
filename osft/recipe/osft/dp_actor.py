@@ -19,7 +19,7 @@ import os
 import torch
 
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss
+from verl.trainer.ppo.core_algos import agg_loss, kl_penalty
 from verl.utils.debug import GPUMemoryLogger
 from verl.utils.device import get_device_id, is_cuda_available, is_npu_available
 from verl.utils.py_functional import append_to_dict
@@ -51,6 +51,8 @@ class OSFTDataParallelPPOActor(DataParallelPPOActor):
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
         if multi_turn:
             select_keys.append("loss_mask")
+        if self.config.use_kl_loss:
+            select_keys.append("ref_log_prob")
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
 
@@ -98,8 +100,16 @@ class OSFTDataParallelPPOActor(DataParallelPPOActor):
                         response_mask = attention_mask[:, -response_length:]
 
                     loss_agg_mode = self.config.loss_agg_mode
+                    policy_loss_type = str(self.config.get("policy_loss_type", "cross_entropy")).lower()
+                    entropy_loss_coeff = float(self.config.get("entropy_loss_coeff", 1.0))
 
-                    calculate_entropy = False
+                    if policy_loss_type not in {"cross_entropy", "entropy_minimization"}:
+                        raise ValueError(
+                            f"Unsupported policy_loss_type: {policy_loss_type}. "
+                            "Expected one of: cross_entropy, entropy_minimization."
+                        )
+
+                    calculate_entropy = policy_loss_type == "entropy_minimization"
 
                     # we should use log_prob to calculate the cross entropy loss
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature, calculate_entropy=calculate_entropy)
@@ -107,6 +117,10 @@ class OSFTDataParallelPPOActor(DataParallelPPOActor):
                     # Cross-Entropy Loss is equivalent to Negative Log-Likelihood.
                     cross_entropy_loss = agg_loss(loss_mat=-log_prob, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
                     policy_loss = cross_entropy_loss
+                    entropy_loss = None
+                    if calculate_entropy:
+                        entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+                        policy_loss = entropy_loss * entropy_loss_coeff
 
                     with torch.no_grad():
                         masked_log_prob = log_prob * response_mask
@@ -118,6 +132,16 @@ class OSFTDataParallelPPOActor(DataParallelPPOActor):
                             # Avoid division by zero if there are no valid tokens.
                             perplexity = torch.tensor(0.0, device=log_prob.device)
 
+                    if self.config.use_kl_loss:
+                        ref_log_prob = data["ref_log_prob"]
+                        # compute kl loss
+                        kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type)
+                        kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+                        policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
+                        metrics["actor/kl_loss"] = kl_loss.detach().item()
+                        metrics["actor/kl_coef"] = self.config.kl_loss_coef
+
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
                         loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
@@ -127,8 +151,11 @@ class OSFTDataParallelPPOActor(DataParallelPPOActor):
 
                     data = {
                         "actor/pg_loss": policy_loss.detach().item(), # here pg is just for alignment with grpo's logging
+                        "actor/cross_entropy_loss": cross_entropy_loss.detach().item(),
                         "actor/perplexity": perplexity.detach().item(),
                     }
+                    if entropy_loss is not None:
+                        data["actor/entropy_loss"] = entropy_loss.detach().item()
                     append_to_dict(metrics, data)
 
                 grad_norm = self._optimizer_step()

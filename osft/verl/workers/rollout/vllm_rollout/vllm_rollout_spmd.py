@@ -256,6 +256,10 @@ class vLLMRollout(BaseRollout):
 
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
+        is_taus_anneal = prompts.meta_info.get("taus_anneal", False)
+        temperature = prompts.meta_info.get("temperature", self.config.val_kwargs.temperature)
+        top_p = prompts.meta_info.get("top_p", self.config.val_kwargs.top_p)
+        top_k = prompts.meta_info.get("top_k", self.config.val_kwargs.top_k)
         if not do_sample:
             kwargs = {
                 "best_of": 1,
@@ -268,11 +272,17 @@ class vLLMRollout(BaseRollout):
         elif is_validate:
             # TODO: try **
             kwargs = {
-                "top_k": self.config.val_kwargs.top_k,
-                "top_p": self.config.val_kwargs.top_p,
-                "temperature": self.config.val_kwargs.temperature,
+                "top_k": top_k,
+                "top_p": top_p,
+                "temperature": temperature,
                 "n": 1,  # if validate, already repeat in ray_trainer
             }
+
+        # during training
+        if not is_validate and is_taus_anneal:
+            assert "temperature" in prompts.meta_info, "temperature not found in meta_info when using taus annealing"
+            # Only override temperature while preserving other sampling parameters.
+            kwargs["temperature"] = prompts.meta_info["temperature"]
 
         lora_requests = None
         if self.lora_kwargs:

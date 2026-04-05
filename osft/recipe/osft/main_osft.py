@@ -74,6 +74,7 @@ class TaskRunner:
         if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from recipe.osft.fsdp_workers import OSFTRolloutRefWorker
+            from verl.workers.fsdp_workers import ActorRolloutRefWorker
             from verl.single_controller.ray import RayWorkerGroup
 
             ray_worker_group_cls = RayWorkerGroup
@@ -100,6 +101,11 @@ class TaskRunner:
         mapping = {
             Role.ActorRollout: global_pool_id,
         }
+
+        # Add a reference policy worker if KL loss or KL reward is used.
+        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            mapping[Role.RefPolicy] = global_pool_id
 
         reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})) # this is only for logging metrics, not for training
         val_reward_fn = load_reward_manager(config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {}))

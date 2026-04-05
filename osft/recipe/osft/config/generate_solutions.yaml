@@ -1,0 +1,116 @@
+data:
+  path: ~/data/deepscaler/train.parquet
+  prompt_key: prompt
+  n_samples: 1
+  # Directory where one parquet file per temperature will be written.
+  # Each file is named solutions_tau{T}.parquet and contains the original
+  # dataset columns plus a `solution` column.
+  output_dir: ./generated_solutions
+  batch_size: null
+  dataloader_num_workers: 4
+  filter_overlong_prompts: True
+  filter_overlong_prompts_workers: 1
+  truncation: error
+  image_key: images
+  video_key: videos
+  return_raw_input_ids: False
+  return_raw_chat: False
+  return_full_prompt: False
+  tokenizer: null
+  use_shm: False
+
+trainer:
+  nnodes: 1
+  n_gpus_per_node: 8
+  device: cuda
+
+model:
+  path: Qwen/Qwen2.5-Math-7B
+  external_lib: null
+  use_shm: False
+
+rollout:
+  name: vllm
+  mode: sync
+  temperature: 1.0
+  top_k: -1
+  top_p: 1
+  prompt_length: 1024
+  response_length: 3072
+  dtype: bfloat16
+  gpu_memory_utilization: 0.9
+  ignore_eos: False
+  enforce_eager: True
+  free_cache_engine: False
+  load_format: dummy_dtensor
+  tensor_model_parallel_size: 1
+  max_num_batched_tokens: 8192
+  max_model_len: null
+  max_num_seqs: 1024
+  log_prob_micro_batch_size: null
+  log_prob_micro_batch_size_per_gpu: 8
+  use_fire_sampling: False
+  do_sample: True
+  disable_log_stats: True
+  enable_chunked_prefill: True
+  n: 1
+  multi_turn:
+    enable: False
+    max_turns: null
+    tool_config_path: null
+    completion_callback: null
+    use_inference_chat_template: False
+    enable_tokenization_sanity_check: True
+  val_kwargs:
+    top_k: -1
+    top_p: 1.0
+    temperature: 0
+    n: 1
+    do_sample: False
+
+# Temperatures at which to run generation.
+# Default: greedy (0), moderate (0.6), and high entropy (1.0).
+eval:
+  taus: [0.0, 0.6, 1.0]
+  ckpt_path: null
+  tau_range:
+    start: null
+    end: null
+    step: null
+
+ray_init:
+  num_cpus: 64
+
+reward_model:
+  enable: False
+  strategy: fsdp
+  model:
+    use_shm: False
+    use_remove_padding: False
+    trust_remote_code: False
+    fsdp_config:
+      wrap_policy:
+        min_num_params: 0
+      param_offload: False
+      reshard_after_forward: True
+      fsdp_size: -1
+      forward_prefetch: False
+  micro_batch_size: null
+  micro_batch_size_per_gpu: null
+  max_length: null
+  ulysses_sequence_parallel_size: 1
+  reward_manager: naive
+  launch_reward_fn_async: False
+  async_max_inflight: 2
+  sandbox_fusion:
+    url: null
+    max_concurrent: 64
+
+actor:
+  strategy: fsdp
+  ulysses_sequence_parallel_size: 1
+  entropy_from_logits_with_chunking: False
+  entropy_checkpointing: False
+  fsdp_config:
+    fsdp_size: -1
+    forward_prefetch: False

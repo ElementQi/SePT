@@ -1,12 +1,11 @@
 
 <table>
   <tr>
-    <td style="width: 45%;"><img src="figures/qwenmath_2pic.png" alt="base_figure" style="width: 100%;"></td>
-    <td style="width: 45%;"><img src="figures/average_performance_with_baselines.png" alt="training_figure" style="width: 100%;"></td>
+    <td style="width: 95%;"><img src="figures/figure1.png" alt="base_figure" style="width: 100%;"></td>
   </tr>
   <tr>
     <td colspan="2" style="text-align: center;">
-      <img src="figures/prob.png" alt="probability_results" style="width: 100%;">
+      <img src="figures/figure2.png" alt="probability_results" style="width: 100%;">
     </td>
   </tr>
 </table>
@@ -14,7 +13,7 @@
 
 # Online SFT
 
-Code for [Online SFT for LLM Reasoning: Surprising Effectiveness of Self-Tuning without Rewards](https://arxiv.org/abs/2510.18814).
+Code for [A Model Can Help Itself: Reward-Free Self-Training for LLM Reasoning](SePT.pdf).
 
 OSFT is a self-help, reward-free method that improves LLM reasoning by finetuning the model on its own generated responses.
 
@@ -24,11 +23,11 @@ OSFT is a self-help, reward-free method that improves LLM reasoning by finetunin
 ## Setup
 
 ```sh
-git clone https://github.com/ElementQi/OnlineSFT.git
-cd OnlineSFT/osft
+git clone https://github.com/ElementQi/SePT.git
+cd SePT/sept
 
-conda create -n osft python=3.10
-conda activate osft
+conda create -n sept python=3.10
+conda activate sept
 
 # some machines need this
 # conda install -c conda-forge pyzmq
@@ -56,35 +55,32 @@ Before running the scripts below, please ensure you are in the project root dire
 
 
 ```sh
-conda activate osft
+conda activate sept
 
-# for OSFT training
-bash examples/osft_1e7_dsr_tau0s6.sh
+# for SePT training
+bash examples/sept_1e7_dsr.sh
 
 # for GRPO training
-bash examples/grpo_1e7_dsr_tau1s.sh
+bash examples/grpo_5e7_dsr.sh
 
-# for DAPO and Dr. GRPO training
-bash examples/dapo_1e7_dsr_tau1s.sh
-bash examples/drgrpo_1e7_dsr_tau1s.sh
+# for EM-FT training
+bash examples/em_1e7_dsr.sh
+
+# for SePT (Offline) training
+bash examples/generate_solutions.sh
+bash examples/offline_train.sh
 ```
 
 
 ### Validation on specific checkpoints
 
-For evaluation, we re-write the evaluation code for `_validate` function inside the Trainer. And if you want to evaluate a specific checkpoint or base models, try to use `recipe/osft/generation_same_validate.py`.
-
-This is an example for sweeping temperatures for a base model:
-
-```
-bash examples/all_models_tauv.sh
-```
+For evaluation, we re-write the evaluation code for `_validate` function inside the Trainer. And if you want to evaluate a specific checkpoint or base model, try to use `examples/trained_model_sweep.sh` and `examples/base_model_sweep.sh`.
 
 If you want to transform the training checkpoints via verl, you should follow the instructions from [verl official tutorial for model converting](https://verl.readthedocs.io/en/latest/advance/checkpoint.html#convert-fsdp-and-megatron-checkpoints-to-huggingface-format-model). The model merge script is located in [here](https://github.com/volcengine/verl/blob/main/scripts/legacy_model_merger.py).
 
 ## Dataset
 
-The datasets are located in `osft/data` folder. There are two training sets DSR and Openthoughts math-only. And there are 6 benchmark files inside its `benchmarks` folder.
+The datasets are located in `data` folder. There are two training sets DSR (DeepScaleR) and OTM (Openthoughts Math-only). And there are 6 benchmark files inside its `benchmarks` folder.
 
 ## What we mainly modified
 
@@ -113,15 +109,15 @@ This repository is built based on [VERL](https://github.com/volcengine/verl) at 
 For verifier, we used the verifier from [The Entropy Mechanism of Reinforcement Learning for Large Language Model Reasoning.](https://arxiv.org/pdf/2505.22617), which uses [HuggingFace Math-Verify](https://github.com/huggingface/Math-Verify). The source code could be found in [VERL entropy recipe](https://github.com/volcengine/verl/tree/main/recipe/entropy/reward_score/entropy_math).
 
 
-## Citation
+<!-- ## Citation
 
 If you find our work useful, please consider citing our paper:
 
 ```bibtex
 @article{li2025onlinesftllmreasoning,
-  title   = {Online SFT for LLM Reasoning: Surprising Effectiveness of Self-Tuning without Rewards},
+  title   = {A Model Can Help Itself: Reward-Free Self-Training for LLM Reasoning},
   author  = {Mengqi Li and Lei Zhao and Anthony Man-Cho So and Ruoyu Sun and Xiao Li},
   journal = {arXiv preprint arXiv:2510.18814},
   year    = {2025}
 }
-```
+``` -->

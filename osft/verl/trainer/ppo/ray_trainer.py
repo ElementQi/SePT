@@ -453,7 +453,7 @@ class RayPPOTrainer:
                 assert config.critic.model.use_remove_padding, "When using sequence parallelism for critic, you must enable `use_remove_padding`."
 
         if config.data.get("val_batch_size", None) is not None:
-            print("WARNING: val_batch_size is deprecated." + " Validation datasets are sent to inference engines as a whole batch," + " which will schedule the memory themselves.")
+            print("[validate_config] val_batch_size is set and will be used for validation dataloader batching.")
 
         # check eval config
         # if config.actor_rollout_ref.rollout.val_kwargs.do_sample:
@@ -496,9 +496,15 @@ class RayPPOTrainer:
             sampler=train_sampler,
         )
 
-        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
+        # Avoid one-giant-batch validation: this reduces SPMD stragglers and prevents long idle periods.
+        val_batch_size = self.config.data.get("val_batch_size", None)
         if val_batch_size is None:
+            val_batch_size = self.config.data.get("batch_size", None)
+
+        if val_batch_size is None or int(val_batch_size) <= 0:
             val_batch_size = len(self.val_dataset)
+        else:
+            val_batch_size = min(int(val_batch_size), len(self.val_dataset))
 
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
@@ -672,7 +678,7 @@ class RayPPOTrainer:
                 if ds not in logits_analysis_samples:
                     logits_analysis_samples[ds] = new_samples_to_add
                 else:
-                    logits_analysis_samples[ds] = logits_analysis_samples[ds].union(new_samples_to_add)
+                    logits_analysis_samples[ds] = DataProto.concat([logits_analysis_samples[ds], new_samples_to_add])
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -695,7 +701,10 @@ class RayPPOTrainer:
 
             # evaluate using reward_function
             result = self.val_reward_fn(test_batch, return_dict=True)
-            reward_tensor = result["reward_tensor"]
+            # DAPO reward manager returns both `reward_tensor` (training reward)
+            # and `reward_DAPO_for_OSFT_tensor` (benchmark score). Prefer the
+            # latter for validation metrics when it is available.
+            reward_tensor = result.get("reward_DAPO_for_OSFT_tensor", result["reward_tensor"])
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
@@ -703,6 +712,12 @@ class RayPPOTrainer:
             reward_extra_infos_dict["response_lengths"].extend(response_lengths.cpu().tolist())
             if "reward_extra_info" in result:
                 for key, lst in result["reward_extra_info"].items():
+                    # `reward`/`response_lengths` are tracked above; some reward
+                    # managers (e.g. DAPO) also emit them in `reward_extra_info`.
+                    # Skipping avoids double counting and keeps all metric lists
+                    # aligned with `sample_scores`.
+                    if key in {"reward", "response_lengths"}:
+                        continue
                     reward_extra_infos_dict[key].extend(lst)
 
             data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
@@ -713,8 +728,14 @@ class RayPPOTrainer:
             if len(collected_samples) > 0:
                 print(f"Processing {len(collected_samples)} samples for data source '{data_source}' for logits analysis...")
 
+                # Keep logits-analysis comparable by fixing the log-prob temperature in validation.
+                val_log_prob_temperature = float(self.config.actor_rollout_ref.rollout.val_kwargs.temperature)
+                collected_samples.meta_info["temperature"] = val_log_prob_temperature
+
                 # old_log_probs, entropys
-                logits_output = self.actor_rollout_wg.compute_log_prob(collected_samples)
+                collected_samples_padded, collected_pad_size = pad_dataproto_to_divisor(collected_samples, self.actor_rollout_wg.world_size)
+                logits_output_padded = self.actor_rollout_wg.compute_log_prob(collected_samples_padded)
+                logits_output = unpad_dataproto(logits_output_padded, pad_size=collected_pad_size)
 
                 if "entropys" in logits_output.batch:
                     entropys = logits_output.batch["entropys"]
