@@ -11,11 +11,11 @@
 </table>
 
 
-# Online SFT
+# SePT
 
 Code for [A Model Can Help Itself: Reward-Free Self-Training for LLM Reasoning](SePT.pdf).
 
-OSFT is a self-help, reward-free method that improves LLM reasoning by finetuning the model on its own generated responses.
+SePT (Self-Evolving Post-Training) is a self-help, reward-free method that improves LLM reasoning by finetuning the model on its own generated responses.
 
 > [!NOTE]
 > This codebase is not fully optimized (e.g. unnecessary loggings and computation; not tested on the newest version of verl and transformers); feel free to raise any issues you encountered.
@@ -39,11 +39,11 @@ pip install -e . --no-dependencies
 > [!NOTE]
 > Installation process could be different from various machines and system, but the installation script above is tested on our A800 and 3090 clusters.
 
-If you have any issues when installing the packages, you can refer to the [installation tutorial from verl](https://verl.readthedocs.io/en/latest/start/install.html) and check [our runnable conda environmrnt](osft/osft_envs/environment.yaml).
+If you have any issues when installing the packages, you can refer to the [installation tutorial from verl](https://verl.readthedocs.io/en/latest/start/install.html) and check [our runnable conda environment](sept/sept_envs/environment.yaml).
 
 ## Reproduce Experiments
 
-Before running the scripts below, please ensure you are in the project root directory (`OnlineSFT/osft`).
+Before running the scripts below, please ensure you are in the project root directory (`SePT/sept`).
 
 > [!WARNING]
 > **Configuration is required before running!**
@@ -86,9 +86,9 @@ The datasets are located in `data` folder. There are two training sets DSR (Deep
 
 ### Training logic
 
-- `recipe/osft/osft_trainer`: SFT training logic
+- `recipe/sept/sept_trainer`: SePT training logic
 
-- `recipe/osft/dp_actor`: Cross entropy calculating
+- `recipe/sept/dp_actor`: Cross entropy calculating
 
 
 ### Validation logic
@@ -99,7 +99,7 @@ The datasets are located in `data` folder. There are two training sets DSR (Deep
 
 ### Verifier
 
-`osft/verl/utils/reward_score/__init__.py`
+`sept/verl/utils/reward_score/__init__.py`
 
 ## Source Acknowledgement
 
@@ -109,15 +109,3 @@ This repository is built based on [VERL](https://github.com/volcengine/verl) at 
 For verifier, we used the verifier from [The Entropy Mechanism of Reinforcement Learning for Large Language Model Reasoning.](https://arxiv.org/pdf/2505.22617), which uses [HuggingFace Math-Verify](https://github.com/huggingface/Math-Verify). The source code could be found in [VERL entropy recipe](https://github.com/volcengine/verl/tree/main/recipe/entropy/reward_score/entropy_math).
 
 
-<!-- ## Citation
-
-If you find our work useful, please consider citing our paper:
-
-```bibtex
-@article{li2025onlinesftllmreasoning,
-  title   = {A Model Can Help Itself: Reward-Free Self-Training for LLM Reasoning},
-  author  = {Mengqi Li and Lei Zhao and Anthony Man-Cho So and Ruoyu Sun and Xiao Li},
-  journal = {arXiv preprint arXiv:2510.18814},
-  year    = {2025}
-}
-``` -->

@@ -1,0 +1,40 @@
+# the SePT config will override default ppo_trainer.yaml
+
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+trainer:
+  enable_train_temperature: false # make tau_t=tau_s or not, default is set them different and tau_t=1
+  enable_train_reward: false # logging training rollout reward or not
+
+actor_rollout_ref:
+  actor:
+    optim:
+      lr_warmup_steps: 10
+
+    # Policy objective for SePT updates. Options: cross_entropy, entropy_minimization
+    policy_loss_type: cross_entropy
+
+    # Coefficient applied to the aggregated entropy loss when entropy minimization is enabled
+    entropy_loss_coeff: 1.0
+
+    entropy_coeff: 0
+  rollout:
+    tensor_model_parallel_size: 1
+    tau_s_annealing:
+      enable: false
+      mode: linear
+      start_tau: 0.3
+      end_tau: 0.6
+      epochs: 2
+
+algorithm:
+  adv_estimator: null
+
+ray_init:
+  num_cpus: 64

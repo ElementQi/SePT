@@ -210,6 +210,6 @@ outputs
 logs
 *.out
 *.sh
-!osft/examples/*.sh
+!sept/examples/*.sh
 .vscode
 saves
