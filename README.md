@@ -18,7 +18,7 @@ Code for [A Model Can Help Itself: Reward-Free Self-Training for LLM Reasoning](
 SePT (Self-Evolving Post-Training) is a self-help, reward-free method that improves LLM reasoning by finetuning the model on its own generated responses.
 
 > [!NOTE]
-> This codebase is not fully optimized (e.g. unnecessary loggings and computation; not tested on the newest version of verl and transformers); feel free to raise any issues you encountered.
+> This codebase is not fully optimized (e.g. unnecessary loggings and computation; not tested on the newest version of verl and transformers), and the LoRA implementation has not been fully checked for correctness yet; feel free to raise any issues you encountered.
 
 ## Setup
 
