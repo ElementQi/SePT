@@ -71,7 +71,7 @@ python3 -m recipe.sept.main_sept \
     data.max_response_length=${MAX_GEN_LENGTH} \
     actor_rollout_ref.model.path=${BACKBONE_PATH} \
     actor_rollout_ref.model.use_liger=False \
-    actor_rollout_ref.model.use_shm=True \
+    actor_rollout_ref.model.use_shm=False \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.optim.lr_warmup_steps=10 \

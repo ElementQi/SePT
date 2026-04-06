@@ -53,7 +53,9 @@ Before running the scripts below, please ensure you are in the project root dire
 > You MUST modify the scripts inside the `examples/` directory to fit your environment. Key parameters to change include:
 > - Model Path: Update the path to your base model.
 > - Logger: The default logger is `swanlab`. If you prefer `wandb` or just `console`, modify `trainer.logger=['console','swanlab']`.
-> - Shared Memory: When setting `actor_rollout_ref.model.use_shm=True`, ensure the model name is a valid absolute path on your machine.
+> - Validation Workload: For faster iteration, you can remove some benchmark files from `VAL_FILE_LIST` in scripts such as `examples/sept_1e7_dsr.sh`.
+> - Validation Sampling: `actor_rollout_ref.rollout.val_kwargs.n=32` is fairly expensive for pass@k evaluation. For smoke tests, you can lower it to `4` or less. Likewise, in the sweep scripts, you can reduce `N=32`.
+> - Shared Memory: The example scripts default to `model.use_shm=False`. Only enable shared memory if you have verified it works well on your machine.
 > - Other Hyperparameters: Like rollout number, batch size...
 
 

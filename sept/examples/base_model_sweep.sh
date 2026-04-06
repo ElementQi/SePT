@@ -58,7 +58,7 @@ python3 -m recipe.sept.tau_sweep \
     data.n_samples=${N} \
     data.batch_size=${BATCH_SIZE} \
     model.path=${MODEL_PATH} \
-    model.use_shm=True \
+    model.use_shm=False \
     +model.trust_remote_code=False \
     reward_model.launch_reward_fn_async=True \
     rollout.temperature=1 \
