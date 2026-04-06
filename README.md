@@ -85,7 +85,7 @@ If you want to transform the training checkpoints via verl, you should follow th
 
 ## Dataset
 
-The datasets are located in `data` folder. There are two training sets DSR (DeepScaleR) and OTM (Openthoughts Math-only). And there are 6 benchmark files inside its `benchmarks` folder.
+The datasets are located in `data` folder. There are two training sets DSR (DeepScaleR) and OTM (Openthoughts-Math). And there are 6 benchmark files inside its `benchmarks` folder.
 
 ## What we mainly modified
 
