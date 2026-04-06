@@ -29,6 +29,9 @@ cd SePT/sept
 conda create -n sept python=3.10
 conda activate sept
 
+# to keep pkg_resources alive
+pip install "setuptools<81"
+
 # some machines need this
 # conda install -c conda-forge pyzmq
 pip install -r requirements.txt
