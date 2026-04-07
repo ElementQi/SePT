@@ -114,3 +114,15 @@ This repository is built based on [VERL](https://github.com/volcengine/verl) at 
 For verifier, we used the verifier from [The Entropy Mechanism of Reinforcement Learning for Large Language Model Reasoning.](https://arxiv.org/pdf/2505.22617), which uses [HuggingFace Math-Verify](https://github.com/huggingface/Math-Verify). The source code could be found in [VERL entropy recipe](https://github.com/volcengine/verl/tree/main/recipe/entropy/reward_score/entropy_math).
 
 
+## Citation
+
+If you find our work useful, please consider citing our paper:
+
+```bibtex
+@article{li2026modelhelpitselfrewardfree,
+  title   = {A Model Can Help Itself: Reward-Free Self-Training for LLM Reasoning},
+  author  = {Mengqi Li and Lei Zhao and Anthony Man-Cho So and Ruoyu Sun and Xiao Li},
+  journal = {arXiv preprint arXiv:2510.18814},
+  year    = {2026}
+}
+```
