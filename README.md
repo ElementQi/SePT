@@ -52,6 +52,8 @@ Before running the scripts below, please ensure you are in the project root dire
 > **Configuration is required before running!**
 > You MUST modify the scripts inside the `examples/` directory to fit your environment. Key parameters to change include:
 > - Model Path: Update the path to your base model.
+> - Dataset Selection: Choose between `sept/data` and `sept/data_user_reasoning` based on your model's behavior. `sept/data_user_reasoning` appends ` Please reason step by step, and put the final answer within \boxed{}.` to each question, which can help some models but hurt others.
+> - Chat Template and Prompting: There is no general system-prompt version that works for all models. Some models do not even ship with a chat template in their model folder. You may need to modify the chat template yourself, and also adjust any system prompt or reasoning prompt settings to match your model.
 > - Logger: The default logger is `swanlab`. If you prefer `wandb` or just `console`, modify `trainer.logger=['console','swanlab']`.
 > - Validation Workload: For faster iteration, you can remove some benchmark files from `VAL_FILE_LIST` in scripts such as `examples/sept_1e7_dsr.sh`.
 > - Validation Sampling: `actor_rollout_ref.rollout.val_kwargs.n=32` is fairly expensive for pass@k evaluation. For smoke tests, you can lower it to `4` or less. Likewise, in the sweep scripts, you can reduce `N=32`.
@@ -85,7 +87,9 @@ If you want to transform the training checkpoints via verl, you should follow th
 
 ## Dataset
 
-The datasets are located in `data` folder. There are two training sets DSR (DeepScaleR) and OTM (Openthoughts-Math). And there are 6 benchmark files inside its `benchmarks` folder.
+The original datasets are located in the `sept/data` folder. There are two training sets DSR (DeepScaleR) and OTM (Openthoughts-Math), and there are 6 benchmark files inside its `benchmarks` folder.
+
+We also provide a second version in `sept/data_user_reasoning`. It has the same dataset structure as `sept/data`, but each question is appended with ` Please reason step by step, and put the final answer within \boxed{}.`.
 
 ## What we mainly modified
 
